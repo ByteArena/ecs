@@ -1,7 +1,6 @@
 package ecs
 
 import (
-	"log"
 	"sync/atomic"
 )
 
@@ -57,8 +56,6 @@ func (manager *Manager) NewEntity() *Entity {
 
 	nextid := ComponentID(atomic.AddUint32(&manager.componentNumInc, 1))
 	id := nextid - 1 // to start at 0
-
-	log.Println("ICI", nextid, id)
 
 	entity := &Entity{
 		ID: EntityID(id),
