@@ -16,6 +16,48 @@ type ComponentID uint32
 
 type Tag uint64 // limited to 64 components
 
+func (tag Tag) isIncludedIn(biggertag Tag) bool {
+	return tag&biggertag == tag
+}
+
+func (tag Tag) includes(smallertag Tag) bool {
+	return tag&smallertag == smallertag
+}
+
+type View struct {
+	tag      Tag
+	entities []*QueryResult
+	lock     *sync.RWMutex
+}
+
+func (v View) Get() []*QueryResult {
+	v.lock.RLock()
+	defer v.lock.RUnlock()
+	return v.entities
+}
+
+func (v *View) add(entity *Entity) {
+	v.lock.Lock()
+	v.entities = append(v.entities, entity.manager.GetEntityByID(
+		entity.ID,
+		v.tag,
+	))
+	v.lock.Unlock()
+}
+
+func (v *View) remove(entity *Entity) {
+	v.lock.RLock()
+	for i, qr := range v.entities {
+		if qr.Entity.ID == entity.ID {
+			maxbound := len(v.entities) - 1
+			v.entities[maxbound], v.entities[i] = v.entities[i], v.entities[maxbound]
+			v.entities = v.entities[:maxbound]
+			break
+		}
+	}
+	v.lock.RUnlock()
+}
+
 type Manager struct {
 	lock            *sync.RWMutex
 	entityIdInc     uint32
@@ -24,6 +66,7 @@ type Manager struct {
 	entities     []*Entity
 	entitiesByID map[EntityID]*Entity
 	components   []*Component
+	views        map[string]*View
 }
 
 type Component struct {
@@ -42,9 +85,39 @@ func (component Component) GetID() ComponentID {
 	return component.id
 }
 
+func (manager *Manager) CreateView(name string, tag Tag) *View {
+	view := &View{
+		tag:      tag,
+		entities: make([]*QueryResult, 0),
+		lock:     &sync.RWMutex{},
+	}
+
+	entities := manager.Query(tag)
+	manager.lock.Lock()
+	for _, entityresult := range entities {
+		view.entities[entityresult.Entity.ID] = entityresult
+	}
+	manager.views[name] = view
+	manager.lock.Unlock()
+
+	return view
+}
+
+func (manager *Manager) View(name string) []*QueryResult {
+	manager.lock.RLock()
+	view, ok := manager.views[name]
+	if !ok {
+		manager.lock.RUnlock()
+		return nil
+	}
+
+	return view.entities
+}
+
 type Entity struct {
-	ID         EntityID
-	components Tag
+	ID      EntityID
+	tag     Tag
+	manager *Manager
 }
 
 func (entity *Entity) GetID() EntityID {
@@ -57,6 +130,7 @@ func NewManager() *Manager {
 		componentNumInc: 0,
 		entitiesByID:    make(map[EntityID]*Entity),
 		lock:            &sync.RWMutex{},
+		views:           make(map[string]*View),
 	}
 }
 
@@ -83,7 +157,8 @@ func (manager *Manager) NewEntity() *Entity {
 	id := nextid - 1 // to start at 0
 
 	entity := &Entity{
-		ID: EntityID(id),
+		ID:      EntityID(id),
+		manager: manager,
 	}
 
 	manager.lock.Lock()
@@ -145,7 +220,20 @@ func (entity *Entity) AddComponent(component *Component, componentdata interface
 	component.datalock.Lock()
 	component.data[entity.ID] = componentdata
 	component.datalock.Unlock()
-	entity.components |= component.tag
+
+	component.datalock.RLock()
+
+	tagbefore := entity.tag
+	entity.tag |= component.tag
+
+	for _, view := range entity.manager.views {
+
+		if !tagbefore.includes(view.tag) && entity.tag.includes(view.tag) {
+			view.add(entity)
+		}
+	}
+
+	component.datalock.RUnlock()
 	return entity
 }
 
@@ -158,14 +246,21 @@ func (entity *Entity) RemoveComponent(component *Component) *Entity {
 
 	component.datalock.Lock()
 	delete(component.data, entity.ID)
-	component.datalock.Unlock()
+	tagbefore := entity.tag
+	entity.tag ^= component.tag
 
-	entity.components ^= component.tag
+	for _, view := range entity.manager.views {
+		if tagbefore.includes(view.tag) && !entity.tag.includes(view.tag) {
+			view.remove(entity)
+		}
+	}
+
+	component.datalock.Unlock()
 	return entity
 }
 
 func (entity Entity) HasComponent(component *Component) bool {
-	return entity.components&component.tag != 0x0000
+	return entity.tag&component.tag != 0x0000
 }
 
 func (entity Entity) GetComponentData(component *Component) (interface{}, bool) {
@@ -200,7 +295,7 @@ type QueryResult struct {
 
 func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[ComponentID]interface{} {
 
-	if entity.components&tag != tag {
+	if entity.tag&tag != tag {
 		return nil
 	}
 
@@ -219,20 +314,20 @@ func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[Co
 		// fmt.Printf("-------------\n")
 		// fmt.Printf("%16b : %s\n", int64(tag), "tag")
 		// fmt.Printf("%16b : %s\n", int64(component.tag), "component.tag")
-		// fmt.Printf("%16b : %s\n", int64(entity.components), "entity.tag")
+		// fmt.Printf("%16b : %s\n", int64(entity.tag), "entity.tag")
 		// fmt.Printf("//////////////////\n")
 	}
 
 	return componentMap
 }
 
-func (manager *Manager) Query(tag Tag) []QueryResult {
+func (manager *Manager) Query(tag Tag) []*QueryResult {
 
-	matches := make([]QueryResult, 0)
+	matches := make([]*QueryResult, 0)
 
 	manager.lock.RLock()
 	for _, entity := range manager.entities {
-		if entity.components&tag == tag {
+		if entity.tag&tag == tag {
 
 			componentMap := make(map[ComponentID]interface{})
 
@@ -243,7 +338,7 @@ func (manager *Manager) Query(tag Tag) []QueryResult {
 				}
 			}
 
-			matches = append(matches, QueryResult{
+			matches = append(matches, &QueryResult{
 				Entity:     entity,
 				Components: componentMap,
 			})
