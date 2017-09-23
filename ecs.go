@@ -29,12 +29,17 @@ type Manager struct {
 type Component struct {
 	id         ComponentID
 	tag        Tag
+	datalock   *sync.RWMutex
 	data       map[EntityID]interface{}
-	destructor func(entity *Entity)
+	destructor func(entity *Entity, data interface{})
 }
 
-func (component *Component) SetDestructor(destructor func(entity *Entity)) {
+func (component *Component) SetDestructor(destructor func(entity *Entity, data interface{})) {
 	component.destructor = destructor
+}
+
+func (component Component) GetID() ComponentID {
+	return component.id
 }
 
 type Entity struct {
@@ -55,7 +60,7 @@ func NewManager() *Manager {
 	}
 }
 
-func ComposeSignature(elements ...interface{}) Tag {
+func BuildTag(elements ...interface{}) Tag {
 
 	tag := Tag(0)
 
@@ -65,7 +70,7 @@ func ComposeSignature(elements ...interface{}) Tag {
 		} else if othertag, ok := element.(Tag); ok {
 			tag |= othertag
 		} else {
-			panic("Invalid type passed to Composesignature; accepts only <*Component> and <Tag> types.")
+			panic("Invalid type passed to BuildTag; accepts only <*Component> and <Tag> types.")
 		}
 	}
 
@@ -99,9 +104,10 @@ func (manager *Manager) NewComponent() *Component {
 	id := nextid - 1 // to start at 0
 
 	component := &Component{
-		id:   id,
-		tag:  (1 << id), // set bit on position corresponding to component number
-		data: make(map[EntityID]interface{}),
+		id:       id,
+		tag:      (1 << id), // set bit on position corresponding to component number
+		data:     make(map[EntityID]interface{}),
+		datalock: &sync.RWMutex{},
 	}
 
 	manager.lock.Lock()
@@ -111,30 +117,49 @@ func (manager *Manager) NewComponent() *Component {
 	return component
 }
 
-func (manager Manager) GetEntityByID(id EntityID) *Entity {
+func (manager Manager) GetEntityByID(id EntityID, tag Tag) *QueryResult {
+
 	manager.lock.RLock()
 	res, ok := manager.entitiesByID[id]
-	manager.lock.RUnlock()
 
-	if ok {
-		return res
+	if !ok {
+		manager.lock.RUnlock()
+		return nil
 	}
 
-	return nil
+	components := manager.fetchComponentsForEntity(res, tag)
+	manager.lock.RUnlock()
+
+	if components == nil {
+		return nil
+	}
+
+	return &QueryResult{
+		Entity:     res,
+		Components: components,
+	}
+
 }
 
 func (entity *Entity) AddComponent(component *Component, componentdata interface{}) *Entity {
+	component.datalock.Lock()
 	component.data[entity.ID] = componentdata
+	component.datalock.Unlock()
 	entity.components |= component.tag
 	return entity
 }
 
 func (entity *Entity) RemoveComponent(component *Component) *Entity {
 	if component.destructor != nil {
-		component.destructor(entity)
+		if data, ok := component.data[entity.ID]; ok {
+			component.destructor(entity, data)
+		}
 	}
 
-	component.data[entity.ID] = nil // not delete, because it seems that delete frees the memory instantly, breaking all other refs that might be alive still
+	component.datalock.Lock()
+	delete(component.data, entity.ID)
+	component.datalock.Unlock()
+
 	entity.components ^= component.tag
 	return entity
 }
@@ -143,12 +168,12 @@ func (entity Entity) HasComponent(component *Component) bool {
 	return entity.components&component.tag != 0x0000
 }
 
-func (entity Entity) GetComponentData(component *Component) interface{} {
-	if data, ok := component.data[entity.ID]; ok {
-		return data
-	}
+func (entity Entity) GetComponentData(component *Component) (interface{}, bool) {
+	component.datalock.RLock()
+	data, ok := component.data[entity.ID]
+	component.datalock.RUnlock()
 
-	return nil
+	return data, ok
 }
 
 func (manager *Manager) DisposeEntities(entities ...*Entity) {
@@ -168,14 +193,61 @@ func (manager *Manager) DisposeEntity(entity *Entity) {
 	manager.lock.Unlock()
 }
 
-func (manager *Manager) Query(tag Tag) []*Entity {
+type QueryResult struct {
+	Entity     *Entity
+	Components map[ComponentID]interface{}
+}
 
-	matches := make([]*Entity, 0)
+func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[ComponentID]interface{} {
+
+	if entity.components&tag != tag {
+		return nil
+	}
+
+	componentMap := make(map[ComponentID]interface{})
+
+	for _, component := range manager.components {
+		if component.tag&tag == component.tag {
+			data, ok := entity.GetComponentData(component)
+			if !ok {
+				return nil // if one of the required components is not set, return nothing !
+			}
+
+			componentMap[component.id] = data
+		}
+
+		// fmt.Printf("-------------\n")
+		// fmt.Printf("%16b : %s\n", int64(tag), "tag")
+		// fmt.Printf("%16b : %s\n", int64(component.tag), "component.tag")
+		// fmt.Printf("%16b : %s\n", int64(entity.components), "entity.tag")
+		// fmt.Printf("//////////////////\n")
+	}
+
+	return componentMap
+}
+
+func (manager *Manager) Query(tag Tag) []QueryResult {
+
+	matches := make([]QueryResult, 0)
 
 	manager.lock.RLock()
 	for _, entity := range manager.entities {
 		if entity.components&tag == tag {
-			matches = append(matches, entity)
+
+			componentMap := make(map[ComponentID]interface{})
+
+			for _, component := range manager.components {
+				if component.tag&tag == component.tag {
+					data, _ := entity.GetComponentData(component)
+					componentMap[component.id] = data
+				}
+			}
+
+			matches = append(matches, QueryResult{
+				Entity:     entity,
+				Components: componentMap,
+			})
+
 		}
 	}
 	manager.lock.RUnlock()
