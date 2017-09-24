@@ -290,16 +290,16 @@ func (manager *Manager) DisposeEntity(entity *Entity) {
 
 type QueryResult struct {
 	Entity     *Entity
-	Components map[ComponentID]interface{}
+	Components map[*Component]interface{}
 }
 
-func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[ComponentID]interface{} {
+func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[*Component]interface{} {
 
 	if entity.tag&tag != tag {
 		return nil
 	}
 
-	componentMap := make(map[ComponentID]interface{})
+	componentMap := make(map[*Component]interface{})
 
 	for _, component := range manager.components {
 		if component.tag&tag == component.tag {
@@ -308,7 +308,7 @@ func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[Co
 				return nil // if one of the required components is not set, return nothing !
 			}
 
-			componentMap[component.id] = data
+			componentMap[component] = data
 		}
 
 		// fmt.Printf("-------------\n")
@@ -329,12 +329,12 @@ func (manager *Manager) Query(tag Tag) []*QueryResult {
 	for _, entity := range manager.entities {
 		if entity.tag&tag == tag {
 
-			componentMap := make(map[ComponentID]interface{})
+			componentMap := make(map[*Component]interface{})
 
 			for _, component := range manager.components {
 				if component.tag&tag == component.tag {
 					data, _ := entity.GetComponentData(component)
-					componentMap[component.id] = data
+					componentMap[component] = data
 				}
 			}
 
