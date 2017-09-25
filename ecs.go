@@ -87,15 +87,15 @@ func (component Component) GetID() ComponentID {
 
 func (manager *Manager) CreateView(name string, tag Tag) *View {
 	view := &View{
-		tag:      tag,
-		entities: make([]*QueryResult, 0),
-		lock:     &sync.RWMutex{},
+		tag:  tag,
+		lock: &sync.RWMutex{},
 	}
 
 	entities := manager.Query(tag)
+	view.entities = make([]*QueryResult, len(entities))
 	manager.lock.Lock()
-	for _, entityresult := range entities {
-		view.entities[entityresult.Entity.ID] = entityresult
+	for i, entityresult := range entities {
+		view.entities[i] = entityresult
 	}
 	manager.views[name] = view
 	manager.lock.Unlock()
@@ -192,7 +192,7 @@ func (manager *Manager) NewComponent() *Component {
 	return component
 }
 
-func (manager Manager) GetEntityByID(id EntityID, tag Tag) *QueryResult {
+func (manager Manager) GetEntityByID(id EntityID, tagelements ...interface{}) *QueryResult {
 
 	manager.lock.RLock()
 	res, ok := manager.entitiesByID[id]
@@ -201,6 +201,8 @@ func (manager Manager) GetEntityByID(id EntityID, tag Tag) *QueryResult {
 		manager.lock.RUnlock()
 		return nil
 	}
+
+	tag := BuildTag(tagelements...)
 
 	components := manager.fetchComponentsForEntity(res, tag)
 	manager.lock.RUnlock()
