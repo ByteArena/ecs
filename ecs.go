@@ -77,7 +77,7 @@ type Manager struct {
 	entities     []*Entity
 	entitiesByID map[EntityID]*Entity
 	components   []*Component
-	views        map[string]*View
+	views        []*View
 }
 
 type Component struct {
@@ -96,7 +96,7 @@ func (component Component) GetID() ComponentID {
 	return component.id
 }
 
-func (manager *Manager) CreateView(name string, tag Tag) *View {
+func (manager *Manager) CreateView(tag Tag) *View {
 	view := &View{
 		tag:  tag,
 		lock: &sync.RWMutex{},
@@ -108,21 +108,10 @@ func (manager *Manager) CreateView(name string, tag Tag) *View {
 	for i, entityresult := range entities {
 		view.entities[i] = entityresult
 	}
-	manager.views[name] = view
+	manager.views = append(manager.views, view)
 	manager.lock.Unlock()
 
 	return view
-}
-
-func (manager *Manager) View(name string) queryResultCollection {
-	manager.lock.RLock()
-	view, ok := manager.views[name]
-	if !ok {
-		manager.lock.RUnlock()
-		return nil
-	}
-
-	return view.entities
 }
 
 type Entity struct {
@@ -141,7 +130,7 @@ func NewManager() *Manager {
 		componentNumInc: 0,
 		entitiesByID:    make(map[EntityID]*Entity),
 		lock:            &sync.RWMutex{},
-		views:           make(map[string]*View),
+		views:           make([]*View, 0),
 	}
 }
 
