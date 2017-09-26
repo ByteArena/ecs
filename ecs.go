@@ -322,7 +322,7 @@ func (manager *Manager) DisposeEntity(entity interface{}) {
 			typedentity.RemoveComponent(component)
 		}
 	}
-	manager.entitiesByID[typedentity.ID] = nil
+	delete(manager.entitiesByID, typedentity.ID)
 	manager.lock.Unlock()
 }
 
