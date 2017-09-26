@@ -96,7 +96,10 @@ func (component Component) GetID() ComponentID {
 	return component.id
 }
 
-func (manager *Manager) CreateView(tag Tag) *View {
+func (manager *Manager) CreateView(tagelements ...interface{}) *View {
+
+	tag := BuildTag(tagelements...)
+
 	view := &View{
 		tag:  tag,
 		lock: &sync.RWMutex{},
