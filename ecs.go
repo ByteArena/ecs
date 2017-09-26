@@ -26,11 +26,22 @@ func (tag Tag) includes(smallertag Tag) bool {
 
 type View struct {
 	tag      Tag
-	entities []*QueryResult
+	entities queryResultCollection
 	lock     *sync.RWMutex
 }
 
-func (v View) Get() []*QueryResult {
+type queryResultCollection []*QueryResult
+
+func (coll queryResultCollection) Entities() []*Entity {
+	res := make([]*Entity, len(coll))
+	for i, qr := range coll {
+		res[i] = qr.Entity
+	}
+
+	return res
+}
+
+func (v View) Get() queryResultCollection {
 	v.lock.RLock()
 	defer v.lock.RUnlock()
 	return v.entities
@@ -92,7 +103,7 @@ func (manager *Manager) CreateView(name string, tag Tag) *View {
 	}
 
 	entities := manager.Query(tag)
-	view.entities = make([]*QueryResult, len(entities))
+	view.entities = make(queryResultCollection, len(entities))
 	manager.lock.Lock()
 	for i, entityresult := range entities {
 		view.entities[i] = entityresult
@@ -103,7 +114,7 @@ func (manager *Manager) CreateView(name string, tag Tag) *View {
 	return view
 }
 
-func (manager *Manager) View(name string) []*QueryResult {
+func (manager *Manager) View(name string) queryResultCollection {
 	manager.lock.RLock()
 	view, ok := manager.views[name]
 	if !ok {
@@ -139,12 +150,19 @@ func BuildTag(elements ...interface{}) Tag {
 	tag := Tag(0)
 
 	for _, element := range elements {
-		if component, ok := element.(*Component); ok {
-			tag |= component.tag
-		} else if othertag, ok := element.(Tag); ok {
-			tag |= othertag
-		} else {
-			panic("Invalid type passed to BuildTag; accepts only <*Component> and <Tag> types.")
+		switch typedelement := element.(type) {
+		case *Component:
+			{
+				tag |= typedelement.tag
+			}
+		case Tag:
+			{
+				tag |= typedelement
+			}
+		default:
+			{
+				panic("Invalid type passed to BuildTag; accepts only <*Component> and <Tag> types.")
+			}
 		}
 	}
 
@@ -279,14 +297,40 @@ func (manager *Manager) DisposeEntities(entities ...*Entity) {
 	}
 }
 
-func (manager *Manager) DisposeEntity(entity *Entity) {
-	manager.lock.Lock()
-	for _, component := range manager.components {
-		if entity.HasComponent(component) {
-			entity.RemoveComponent(component)
+func (manager *Manager) DisposeEntity(entity interface{}) {
+
+	var typedentity *Entity
+
+	switch typeditem := entity.(type) {
+	case *QueryResult:
+		{
+			typedentity = typeditem.Entity
+		}
+	case QueryResult:
+		{
+			typedentity = typeditem.Entity
+		}
+	case *Entity:
+		{
+			typedentity = typeditem
+		}
+	default:
+		{
+			panic("Invalid type passed to DisposeEntity; accepts only <*QueryResult>, <QueryResult> and <*Entity> types.")
 		}
 	}
-	manager.entitiesByID[entity.ID] = nil
+
+	if typedentity == nil {
+		return
+	}
+
+	manager.lock.Lock()
+	for _, component := range manager.components {
+		if typedentity.HasComponent(component) {
+			typedentity.RemoveComponent(component)
+		}
+	}
+	manager.entitiesByID[typedentity.ID] = nil
 	manager.lock.Unlock()
 }
 
@@ -323,9 +367,9 @@ func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[*C
 	return componentMap
 }
 
-func (manager *Manager) Query(tag Tag) []*QueryResult {
+func (manager *Manager) Query(tag Tag) queryResultCollection {
 
-	matches := make([]*QueryResult, 0)
+	matches := make(queryResultCollection, 0)
 
 	manager.lock.RLock()
 	for _, entity := range manager.entities {

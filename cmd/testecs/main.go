@@ -2,11 +2,19 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/davecgh/go-spew/spew"
+	"log"
 
 	"github.com/bytearena/ecs"
 )
+
+type Walk struct {
+	Direction string
+	Distance  float64
+}
+
+type Talk struct {
+	Message string
+}
 
 func main() {
 	fmt.Println("Hello, ECS !")
@@ -17,24 +25,45 @@ func main() {
 	talk := manager.NewComponent()
 
 	manager.NewEntity().
-		AddComponent(walk, 5).
-		AddComponent(talk, "wassup")
+		AddComponent(walk, &Walk{
+			Direction: "north",
+			Distance:  12.4,
+		}).
+		AddComponent(talk, &Talk{
+			Message: "Fluctuat nec mergitur.",
+		})
 
 	manager.NewEntity().
-		AddComponent(walk, 1)
+		AddComponent(walk, &Walk{
+			Direction: "east",
+			Distance:  3.14,
+		})
 
 	manager.NewEntity().
-		AddComponent(talk, "I'm just a talker")
+		AddComponent(talk, &Talk{
+			Message: "Wassup?",
+		})
 
-	walkers := ecs.ComposeSignature(walk)
-	talkers := ecs.ComposeSignature(talk)
-	walkertalkers := ecs.ComposeSignature(walkers, talkers)
+	walkers := ecs.BuildTag(walk)
+	talkers := ecs.BuildTag(talk)
+	walkertalkers := ecs.BuildTag(walkers, talkers)
 
-	spew.Dump("walkers", manager.Query(walkers))
-	spew.Dump("talkers", manager.Query(talkers))
-	spew.Dump("walkerstalkers", manager.Query(walkertalkers))
+	for _, result := range manager.Query(walkers) {
+		walkAspect := result.Components[walk].(*Walk)
+		log.Println("I'm walking ", walkAspect.Distance, "km towards", walkAspect.Direction)
+	}
 
-	manager.DisposeEntities(manager.Query(walkertalkers)...)
+	for _, result := range manager.Query(talkers) {
+		talkAspect := result.Components[talk].(*Talk)
+		log.Println(talkAspect.Message, "Just sayin'.")
+		talkAspect.Message = "So I was like 'For real?' and he was like '" + talkAspect.Message + "'"
+	}
 
-	spew.Dump("walkerstalkers", manager.Query(walkertalkers))
+	for _, result := range manager.Query(walkertalkers) {
+		walkAspect := result.Components[walk].(*Walk)
+		talkAspect := result.Components[talk].(*Talk)
+		log.Println("I'm walking towards", walkAspect.Direction, ";", talkAspect.Message)
+	}
+
+	manager.DisposeEntities(manager.Query(walkertalkers).Entities()...)
 }
