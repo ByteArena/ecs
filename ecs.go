@@ -14,14 +14,45 @@ func (id EntityID) String() string {
 
 type ComponentID uint32
 
-type Tag uint64 // limited to 64 components
-
-func (tag Tag) isIncludedIn(biggertag Tag) bool {
-	return tag&biggertag == tag
+type Tag struct {
+	flags   uint64 // limited to 64 components
+	inverse bool
 }
 
-func (tag Tag) includes(smallertag Tag) bool {
-	return tag&smallertag == smallertag
+func (tag Tag) matches(smallertag Tag) bool {
+	res := tag.flags&smallertag.flags == smallertag.flags
+
+	if smallertag.inverse {
+		return !res
+	}
+
+	return res
+}
+
+func (tag *Tag) binaryORInPlace(othertag Tag) *Tag {
+	tag.flags |= othertag.flags
+	return tag
+}
+
+func (tag *Tag) binaryNOTInPlace(othertag Tag) *Tag {
+	tag.flags ^= othertag.flags
+	return tag
+}
+
+func (tag Tag) clone() Tag {
+	return tag
+}
+
+func (tag Tag) Inverse(values ...bool) Tag {
+
+	clone := tag.clone()
+	inverse := true
+	if len(values) > 0 {
+		inverse = values[0]
+	}
+
+	clone.inverse = inverse
+	return clone
 }
 
 type View struct {
@@ -139,17 +170,17 @@ func NewManager() *Manager {
 
 func BuildTag(elements ...interface{}) Tag {
 
-	tag := Tag(0)
+	tag := Tag{}
 
 	for _, element := range elements {
 		switch typedelement := element.(type) {
 		case *Component:
 			{
-				tag |= typedelement.tag
+				tag.binaryORInPlace(typedelement.tag)
 			}
 		case Tag:
 			{
-				tag |= typedelement
+				tag.binaryORInPlace(typedelement)
 			}
 		default:
 			{
@@ -188,9 +219,14 @@ func (manager *Manager) NewComponent() *Component {
 	nextid := ComponentID(atomic.AddUint32(&manager.componentNumInc, 1))
 	id := nextid - 1 // to start at 0
 
+	tag := Tag{
+		flags:   (1 << id), // set bit on position corresponding to component number
+		inverse: false,
+	}
+
 	component := &Component{
 		id:       id,
-		tag:      (1 << id), // set bit on position corresponding to component number
+		tag:      tag,
 		data:     make(map[EntityID]interface{}),
 		datalock: &sync.RWMutex{},
 	}
@@ -228,6 +264,10 @@ func (manager Manager) GetEntityByID(id EntityID, tagelements ...interface{}) *Q
 
 }
 
+func (entity Entity) Matches(tag Tag) bool {
+	return entity.tag.matches(tag)
+}
+
 func (entity *Entity) AddComponent(component *Component, componentdata interface{}) *Entity {
 	component.datalock.Lock()
 	component.data[entity.ID] = componentdata
@@ -236,11 +276,11 @@ func (entity *Entity) AddComponent(component *Component, componentdata interface
 	component.datalock.RLock()
 
 	tagbefore := entity.tag
-	entity.tag |= component.tag
+	entity.tag.binaryORInPlace(component.tag)
 
 	for _, view := range entity.manager.views {
 
-		if !tagbefore.includes(view.tag) && entity.tag.includes(view.tag) {
+		if !tagbefore.matches(view.tag) && entity.tag.matches(view.tag) {
 			view.add(entity)
 		}
 	}
@@ -259,10 +299,10 @@ func (entity *Entity) RemoveComponent(component *Component) *Entity {
 	component.datalock.Lock()
 	delete(component.data, entity.ID)
 	tagbefore := entity.tag
-	entity.tag ^= component.tag
+	entity.tag.binaryNOTInPlace(component.tag)
 
 	for _, view := range entity.manager.views {
-		if tagbefore.includes(view.tag) && !entity.tag.includes(view.tag) {
+		if tagbefore.matches(view.tag) && !entity.tag.matches(view.tag) {
 			view.remove(entity)
 		}
 	}
@@ -272,7 +312,7 @@ func (entity *Entity) RemoveComponent(component *Component) *Entity {
 }
 
 func (entity Entity) HasComponent(component *Component) bool {
-	return entity.tag&component.tag != 0x0000
+	return entity.tag.matches(component.tag)
 }
 
 func (entity Entity) GetComponentData(component *Component) (interface{}, bool) {
@@ -333,14 +373,14 @@ type QueryResult struct {
 
 func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[*Component]interface{} {
 
-	if entity.tag&tag != tag {
+	if !entity.tag.matches(tag) {
 		return nil
 	}
 
 	componentMap := make(map[*Component]interface{})
 
 	for _, component := range manager.components {
-		if component.tag&tag == component.tag {
+		if tag.matches(component.tag) {
 			data, ok := entity.GetComponentData(component)
 			if !ok {
 				return nil // if one of the required components is not set, return nothing !
@@ -365,12 +405,12 @@ func (manager *Manager) Query(tag Tag) queryResultCollection {
 
 	manager.lock.RLock()
 	for _, entity := range manager.entities {
-		if entity.tag&tag == tag {
+		if entity.tag.matches(tag) {
 
 			componentMap := make(map[*Component]interface{})
 
 			for _, component := range manager.components {
-				if component.tag&tag == component.tag {
+				if tag.matches(component.tag) {
 					data, _ := entity.GetComponentData(component)
 					componentMap[component] = data
 				}
