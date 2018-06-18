@@ -6,6 +6,8 @@ Think of it as a flexible, in-memory, queryable database of **game actors** (ent
 
 You're left with writing the systems, (preferably stateless) functions that query the database to fetch the state of the game they're responsible of, and update it accordingly.
 
+TypeScript port: https://github.com/netgusto/ecs-typescript/blob/master/src/ecs.ts
+
 ## Installation
 
 ```
