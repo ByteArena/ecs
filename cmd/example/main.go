@@ -87,7 +87,7 @@ func main() {
 	///////////////////////////////////////////////////////////////////////////
 
 	fmt.Println("\n# Demonstrating views")
-	ß
+
 	talkersView := manager.CreateView(talkers)
 
 	//Add a new entity that can talk which has not been mutated
