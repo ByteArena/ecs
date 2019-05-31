@@ -13,7 +13,7 @@ type Walk struct {
 	Distance  float64
 }
 
-// The Walk component
+// The Talk component
 type Talk struct {
 	Message string
 }
@@ -90,12 +90,13 @@ func main() {
 
 	talkersView := manager.CreateView(talkers)
 
+	//Add a new entity that can talk
 	manager.NewEntity().
 		AddComponent(talk, &Talk{
 			Message: "Ceci n'est pas une pipe",
 		})
 
-	fmt.Println("\n# Should print 2 messages :")
+	fmt.Println("\n# Should print 3 messages :")
 	for _, result := range talkersView.Get() {
 		talkAspect := result.Components[talk].(*Talk)
 		fmt.Println(result.Entity.GetID(), "says", talkAspect.Message)
