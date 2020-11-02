@@ -57,13 +57,13 @@ func (tag Tag) Inverse(values ...bool) Tag {
 
 type View struct {
 	tag      Tag
-	entities queryResultCollection
+	entities QueryResultCollection
 	lock     *sync.RWMutex
 }
 
-type queryResultCollection []*QueryResult
+type QueryResultCollection []*QueryResult
 
-func (coll queryResultCollection) Entities() []*Entity {
+func (coll QueryResultCollection) Entities() []*Entity {
 	res := make([]*Entity, len(coll))
 	for i, qr := range coll {
 		res[i] = qr.Entity
@@ -72,7 +72,7 @@ func (coll queryResultCollection) Entities() []*Entity {
 	return res
 }
 
-func (v View) Get() queryResultCollection {
+func (v View) Get() QueryResultCollection {
 	v.lock.RLock()
 	defer v.lock.RUnlock()
 	return v.entities
@@ -137,7 +137,7 @@ func (manager *Manager) CreateView(tagelements ...interface{}) *View {
 	}
 
 	entities := manager.Query(tag)
-	view.entities = make(queryResultCollection, len(entities))
+	view.entities = make(QueryResultCollection, len(entities))
 	manager.lock.Lock()
 	for i, entityresult := range entities {
 		view.entities[i] = entityresult
@@ -399,9 +399,9 @@ func (manager *Manager) fetchComponentsForEntity(entity *Entity, tag Tag) map[*C
 	return componentMap
 }
 
-func (manager *Manager) Query(tag Tag) queryResultCollection {
+func (manager *Manager) Query(tag Tag) QueryResultCollection {
 
-	matches := make(queryResultCollection, 0)
+	matches := make(QueryResultCollection, 0)
 
 	manager.lock.RLock()
 	for _, entity := range manager.entities {
