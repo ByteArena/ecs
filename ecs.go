@@ -72,7 +72,7 @@ func (coll QueryResultCollection) Entities() []*Entity {
 	return res
 }
 
-func (v View) Get() QueryResultCollection {
+func (v *View) Get() QueryResultCollection {
 	v.lock.RLock()
 	defer v.lock.RUnlock()
 	return v.entities
@@ -123,7 +123,7 @@ func (component *Component) SetDestructor(destructor func(entity *Entity, data i
 	component.destructor = destructor
 }
 
-func (component Component) GetID() ComponentID {
+func (component *Component) GetID() ComponentID {
 	return component.id
 }
 
@@ -238,7 +238,7 @@ func (manager *Manager) NewComponent() *Component {
 	return component
 }
 
-func (manager Manager) GetEntityByID(id EntityID, tagelements ...interface{}) *QueryResult {
+func (manager *Manager) GetEntityByID(id EntityID, tagelements ...interface{}) *QueryResult {
 
 	manager.lock.RLock()
 	res, ok := manager.entitiesByID[id]
